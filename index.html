@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en" data-theme="bmh">
+<head>
+<meta charset="utf-8">
+<!-- WHY THIS CSP (card #464, SPEC "SHELL"): this page holds Goose's device key
+     in localStorage and shows his own words, the private room's included.
+     Script comes only from this origin (app.js), style only from app.css,
+     audio only from this origin or a blob the page made itself, and the page
+     can talk only to this Mac's Goose on 8650, over the tailnet or loopback.
+     There is no inline script, no inline style and no inline handler. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self' https://*.ts.net:8650 http://127.0.0.1:8650 http://localhost:8650; worker-src 'self'; manifest-src 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#0f0f0f">
+<meta name="color-scheme" content="dark">
+<title>Goose</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="app.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- THE TOP BAR rides every screen, the connect screen included, and sits
+       above every sheet, so the 988 button is never covered. 988 is a real
+       tel: link, so it still dials if the script never loads; with the script
+       it opens the rail sheet (988, text 988, your sponsor). -->
+  <header class="bar" id="bar">
+    <div class="brand">
+      <span class="word">GOOSE</span>
+      <span class="dot" id="dot" role="img" aria-label="Checking the line"></span>
+      <span class="lock" id="lock" role="img" aria-label="The door is closed. This talk stays on the Mac." hidden>
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path d="M7.5 10.5V7.5a4.5 4.5 0 0 1 9 0v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="5" y="10.5" width="14" height="10.5" rx="2.5" fill="currentColor"/></svg>
+      </span>
+    </div>
+    <span class="grow"></span>
+    <button class="bar-btn" id="gear" type="button" aria-label="Settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="sheetSettings">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7.5h9.5M18.5 7.5H20M4 16.5h3.5M12.5 16.5H20"/><circle cx="16" cy="7.5" r="2.4"/><circle cx="10" cy="16.5" r="2.4"/></g></svg>
+    </button>
+    <a class="b988" id="b988" href="tel:988" aria-haspopup="dialog" aria-expanded="false" aria-controls="sheetRail" aria-label="988 crisis line and your sponsor">988</a>
+  </header>
+
+  <noscript><p class="noscript">Goose needs JavaScript to talk. The 988 button above still dials.</p></noscript>
+
+  <!-- NOT CONNECTED: a calm screen and nothing to fill in. A key reaches this
+       phone only through a one-time connect link made on the Mac. -->
+  <section class="connect" id="connect" aria-labelledby="connectSay" hidden>
+    <div class="connect-ring" aria-hidden="true"></div>
+    <p class="connect-say" id="connectSay">Open the connect link from the Mac.</p>
+    <p class="connect-why" id="connectWhy" role="status" aria-live="polite"></p>
+  </section>
+
+  <!-- THE TALK: the thread above, the key below it, the one lit thing. -->
+  <main class="talk" id="talk" hidden>
+    <div class="thread" id="thread" role="log" aria-live="polite" aria-label="The talk">
+      <div class="empty" id="empty">
+        <p class="empty-say">Talk it through.</p>
+        <p class="empty-how">Tap the key and say what's going on, or type it.</p>
+      </div>
+    </div>
+
+    <div class="deck">
+      <button class="notch" id="resend" type="button" aria-label="No line. Tap to send your last words again." hidden>No line — tap to resend</button>
+
+      <button class="key" id="key" type="button" data-state="idle" aria-label="Tap to talk">
+        <span class="key-ring" aria-hidden="true"></span>
+        <span class="key-glass" aria-hidden="true"></span>
+        <span class="key-label" aria-hidden="true"><span class="k-state" id="keyState"></span><span class="k-act" id="keyAct">TAP TO TALK</span></span>
+      </button>
+
+      <div class="compose">
+        <label class="sr" for="text">Type to Goose</label>
+        <input class="text" id="text" type="text" inputmode="text" enterkeyhint="send" autocomplete="off" autocapitalize="sentences" maxlength="4000" placeholder="Or type it">
+        <button class="send" id="send" type="button" aria-label="Send to Goose">SEND</button>
+      </div>
+
+      <div class="chips" role="group" aria-label="Talk tools">
+        <button class="chip" id="newtalk" type="button" aria-label="Start a new talk">NEW TALK</button>
+        <button class="chip" id="lessonsBtn" type="button" aria-label="Lessons Goose has learned from you" aria-haspopup="dialog" aria-expanded="false" aria-controls="sheetLessons">LESSONS</button>
+        <button class="chip" id="knowBtn" type="button" aria-label="What Goose knows right now" aria-haspopup="dialog" aria-expanded="false" aria-controls="sheetKnow">WHAT I KNOW</button>
+        <button class="chip" id="voiceBtn" type="button" aria-label="Goose speaks its answers" aria-pressed="true">VOICE ON</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+
+<!-- THE RAIL. Everything here works with no line and no Mac: two tel: links,
+     one sms: link, and a number kept only in this phone's storage. -->
+<section class="sheet rail" id="sheetRail" role="dialog" aria-labelledby="railTitle" hidden>
+  <div class="sheet-head">
+    <h2 class="sheet-title" id="railTitle" tabindex="-1">988 · YOUR SPONSOR</h2>
+    <button class="x" id="railClose" type="button" aria-label="Close the 988 sheet">CLOSE</button>
+  </div>
+  <div class="sheet-body">
+    <p class="rail-say">You don't have to carry this by yourself.</p>
+    <p class="rail-sub">988 is the Suicide and Crisis Lifeline. Call or text, any hour.</p>
+    <a class="rail-btn primary" id="call988" href="tel:988" aria-label="Call 988">CALL 988</a>
+    <a class="rail-btn" id="text988" href="sms:988" aria-label="Text 988">TEXT 988</a>
+    <div id="sponsorCall" hidden>
+      <a class="rail-btn gold" id="sponsorLink" aria-label="Call my sponsor">CALL MY SPONSOR</a>
+    </div>
+    <div class="sponsor-add" id="sponsorAdd">
+      <label class="field-label" for="sponsorIn">Add my sponsor's number</label>
+      <div class="field-row">
+        <input class="field" id="sponsorIn" type="tel" inputmode="tel" autocomplete="off" maxlength="24" placeholder="Sponsor's number">
+        <button class="field-btn" id="sponsorSave" type="button" aria-label="Save my sponsor's number on this phone">SAVE</button>
+      </div>
+      <p class="field-note" id="sponsorNote" role="status" aria-live="polite"></p>
+    </div>
+    <p class="fine">Your sponsor's number stays on this phone. It is never sent anywhere.</p>
+  </div>
+</section>
+
+<section class="sheet" id="sheetLessons" role="dialog" aria-labelledby="lessonsTitle" hidden>
+  <div class="sheet-head">
+    <h2 class="sheet-title" id="lessonsTitle" tabindex="-1">LESSONS</h2>
+    <button class="x" id="lessonsClose" type="button" aria-label="Close lessons">CLOSE</button>
+  </div>
+  <div class="sheet-body" id="lessonList"></div>
+</section>
+
+<section class="sheet" id="sheetKnow" role="dialog" aria-labelledby="knowTitle" hidden>
+  <div class="sheet-head">
+    <h2 class="sheet-title" id="knowTitle" tabindex="-1">WHAT I KNOW</h2>
+    <button class="x" id="knowClose" type="button" aria-label="Close what I know">CLOSE</button>
+  </div>
+  <div class="sheet-body" id="knowList"></div>
+</section>
+
+<section class="sheet" id="sheetSettings" role="dialog" aria-labelledby="settingsTitle" hidden>
+  <div class="sheet-head">
+    <h2 class="sheet-title" id="settingsTitle" tabindex="-1">SETTINGS</h2>
+    <button class="x" id="settingsClose" type="button" aria-label="Close settings">CLOSE</button>
+  </div>
+  <div class="sheet-body">
+    <h3 class="set-h">Your sponsor</h3>
+    <div class="field-row">
+      <input class="field" id="setSponsor" type="tel" inputmode="tel" autocomplete="off" maxlength="24" placeholder="Sponsor's number" aria-label="Your sponsor's number">
+      <button class="field-btn" id="setSponsorSave" type="button" aria-label="Save my sponsor's number on this phone">SAVE</button>
+    </div>
+    <p class="field-note" id="setSponsorNote" role="status" aria-live="polite"></p>
+    <button class="quiet-btn" id="setSponsorDel" type="button" aria-label="Remove my sponsor's number from this phone">REMOVE THE NUMBER</button>
+    <p class="fine">Stays on this phone. Never sent anywhere.</p>
+
+    <h3 class="set-h">The connection</h3>
+    <dl class="facts">
+      <div class="fact"><dt>Mac</dt><dd id="setHost"></dd></div>
+      <div class="fact"><dt>Line</dt><dd id="setLine"></dd></div>
+      <div class="fact"><dt>Goose</dt><dd id="setGoose"></dd></div>
+      <div class="fact"><dt>Ears and voice</dt><dd id="setEars"></dd></div>
+      <div class="fact"><dt>Last turn</dt><dd id="setLast"></dd></div>
+      <div class="fact"><dt>This page</dt><dd id="setShell"></dd></div>
+    </dl>
+    <button class="wide-btn" id="reconnect" type="button" aria-label="Forget this connection, then connect again">RE-CONNECT</button>
+    <p class="fine">Re-connect forgets this phone's key. Then open a new connect link from the Mac.</p>
+  </div>
+</section>
+
+<audio id="voice" preload="auto"></audio>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

@@ -1,0 +1,5 @@
+# This repo is published as-is to bik-goose.github.io: keep build litter out of it.
+__pycache__/
+*.pyc
+*.tmp
+.DS_Store

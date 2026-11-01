@@ -1,0 +1,874 @@
+/* Goose — the right seat at night (card #464).
+
+   The metaphor: the cab is dark, the dash is lit warm, and the key is the one
+   big lit thing. Everything else stays low and quiet, so nothing asks to be
+   read while he is rolling.
+
+   Tokens are COPIED (not imported) from ~/Local Models/bik/design/tokens.css
+   and themes/bmh.css, only the ones this page uses, so Goose reads as one
+   house with the rest of BMH and still stands alone the day bik/ is gone.
+   There is no inline style anywhere: the page's CSP says style-src 'self'. */
+
+/* ── from bik/design/tokens.css ─────────────────────────────────────────── */
+:root {
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular",
+    "Menlo", "Courier New", monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-md: 1.125rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5rem;
+
+  --lh-tight: 1.2;
+  --lh-normal: 1.5;
+  --lh-relaxed: 1.65;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-2xl: 20px;
+  --radius-pill: 999px;
+
+  --shadow-weight-lg: 0 12px 32px;
+
+  --duration-fast: 160ms;
+  --duration-normal: 240ms;
+  --duration-slow: 400ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* ── from bik/design/themes/bmh.css ─────────────────────────────────────── */
+:root[data-theme="bmh"] {
+  --color-bg: #0f0f0f;
+  --color-bg-soft: #141414;
+  --color-panel: #1a1a1a;
+  --color-panel-2: #222222;
+  --color-elevated: #2a2a2a;
+
+  --color-fg: #e5e7eb;
+  --color-fg-dim: #b0b0b0;
+  --color-fg-muted: #9ca3af;
+  --color-fg-subtle: #6b7280;
+
+  --color-border: #262626;
+  --color-border-bright: #333333;
+
+  --color-primary: #e5b524;
+  --color-primary-bright: #fbbf24;
+  --color-primary-muted: rgba(229, 181, 36, 0.12);
+
+  --color-success: #22c55e;
+  --color-danger: #ef4444;
+
+  --shadow-lg: var(--shadow-weight-lg) rgba(0, 0, 0, 0.7);
+  --font-body: var(--font-sans);
+
+  color-scheme: dark;
+}
+
+/* ── Goose's own, all derived from the gold ─────────────────────────────── */
+:root {
+  --goose-ink: #f1e3bb;      /* Goose's words: paper under a warm dash light */
+  --goose-lit: #fff3d1;      /* the sentence being spoken right now */
+  --danger-ink: #fca5a5;     /* the 988 button and the no-line notch: clear, not shouting */
+  --bar-h: 56px;
+  /* THE KEY. 58% of the width on a phone, capped by the height so the thread
+     keeps room. On every portrait phone from 360 px wide, keyboard up or
+     down, that stays at or above the 44% the SPEC asks for. */
+  --key: min(58vw, 42dvh);
+}
+@supports not (height: 1dvh) {
+  :root { --key: min(58vw, 42vh); }
+}
+
+/* ── base ───────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--color-bg);
+  color: var(--color-fg);
+}
+body {
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+button, input { font: inherit; color: inherit; }
+button {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+a { -webkit-tap-highlight-color: transparent; }
+:focus-visible {
+  outline: 2px solid var(--color-primary-bright);
+  outline-offset: 3px;
+}
+.sr {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* one column the height of the visible screen; with interactive-widget=
+   resizes-content the keyboard shrinks it, so the text field rides above the keys */
+.app {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+           env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* ── the top bar ────────────────────────────────────────────────────────── */
+.bar {
+  position: relative;
+  z-index: 300;              /* above the scrim and the sheets: 988 is never covered */
+  flex: none;
+  height: var(--bar-h);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3) 0 var(--space-5);
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.word {
+  font: 700 15px/1 var(--font-sans);
+  letter-spacing: 0.34em;
+  color: var(--color-primary);
+  text-shadow: 0 0 16px rgba(229, 181, 36, 0.35);
+}
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-fg-subtle);
+  transition: background var(--duration-slow), box-shadow var(--duration-slow);
+}
+.dot.up { background: var(--color-success); box-shadow: 0 0 10px rgba(34, 197, 94, 0.65); }
+.dot.down { background: var(--color-danger); box-shadow: 0 0 10px rgba(239, 68, 68, 0.7); }
+.dot.none { visibility: hidden; }
+.lock {
+  display: inline-flex;
+  color: var(--color-primary);
+  opacity: 0.85;
+}
+.grow { flex: 1; }
+.bar-btn {
+  display: inline-grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--color-fg-muted);
+}
+.bar-btn[aria-expanded="true"] { color: var(--color-primary); }
+.b988 {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 68px;
+  min-height: 44px;
+  padding: 0 var(--space-4);
+  border: 1.5px solid rgba(239, 68, 68, 0.6);
+  border-radius: var(--radius-pill);
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--danger-ink);
+  font: 700 17px/1 var(--font-sans);
+  letter-spacing: 0.08em;
+  text-decoration: none;
+}
+.b988[aria-expanded="true"] { background: rgba(239, 68, 68, 0.2); }
+
+.noscript {
+  margin: var(--space-6);
+  color: var(--color-fg-muted);
+  font: 400 16px/1.5 var(--font-sans);
+  text-align: center;
+}
+
+/* ── not connected ─────────────────────────────────────────────────────── */
+.connect {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+  padding: var(--space-6);
+  text-align: center;
+}
+.connect-ring {
+  width: min(44vw, 30dvh, 220px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, rgba(229, 181, 36, 0.09), rgba(15, 15, 15, 0) 70%);
+  box-shadow: 0 0 0 2px rgba(229, 181, 36, 0.4), 0 0 60px -14px rgba(229, 181, 36, 0.35);
+}
+.connect-say {
+  margin: 0;
+  max-width: 20ch;
+  color: var(--goose-ink);
+  font: 500 clamp(21px, 6vw, 28px)/1.3 var(--font-sans);
+}
+.connect-why {
+  margin: 0;
+  max-width: 32ch;
+  min-height: 1.5em;
+  color: var(--color-fg-muted);
+  font: 400 15px/1.5 var(--font-sans);
+}
+
+/* ── the talk ──────────────────────────────────────────────────────────── */
+.talk {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* the dash glow: the only warm light in the cab rises from where the key sits */
+  background: radial-gradient(130% 55% at 50% 100%, rgba(229, 181, 36, 0.07), rgba(15, 15, 15, 0) 62%);
+}
+.thread {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-5) var(--space-5) var(--space-2);
+  display: flex;
+  flex-direction: column;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 22px, #000 100%);
+          mask-image: linear-gradient(180deg, transparent 0, #000 22px, #000 100%);
+}
+.thread > :first-child { margin-top: auto; }   /* a short talk sits low, near the key */
+.empty {
+  margin: auto 0;
+  text-align: center;
+}
+.empty-say {
+  margin: 0 0 var(--space-2);
+  color: var(--goose-ink);
+  font: 500 clamp(19px, 5.4vw, 24px)/1.3 var(--font-sans);
+}
+.empty-how {
+  margin: 0;
+  color: var(--color-fg-subtle);
+  font: 400 15px/1.5 var(--font-sans);
+}
+.turn { margin: 0 0 var(--space-6); }
+.you {
+  margin: 0 0 var(--space-2);
+  color: var(--color-fg-muted);
+  font: 400 15px/1.5 var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.heard {
+  margin-right: var(--space-2);
+  color: var(--color-fg-subtle);
+  font: 600 11px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+}
+.goose {
+  margin: 0;
+  color: var(--goose-ink);
+  font: 400 clamp(17px, 4.9vw, 20px)/1.55 var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.s { transition: color var(--duration-slow), text-shadow var(--duration-slow); }
+.s::after { content: " "; }
+.s.lit {
+  color: var(--goose-lit);
+  text-shadow: 0 0 22px rgba(251, 191, 36, 0.35);
+}
+.turn.cut .goose { opacity: 0.6; }
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.tag {
+  display: inline-block;
+  padding: 5px 11px;
+  border: 1px solid rgba(229, 181, 36, 0.45);
+  border-radius: var(--radius-pill);
+  color: var(--color-primary);
+  font: 600 11px/1.2 var(--font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.err {
+  margin: var(--space-2) 0 0;
+  color: #fdba8c;
+  font: 400 15px/1.5 var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-6);
+  color: var(--color-fg-subtle);
+  font: 600 10.5px/1.2 var(--font-mono);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.divider::before, .divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-border-bright);
+}
+
+/* ── the deck: the notch, the key, the text field, the chips ───────────── */
+.deck {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4) var(--space-3);
+}
+.notch {
+  min-height: 44px;
+  padding: 0 var(--space-5);
+  border: 1px solid rgba(239, 68, 68, 0.65);
+  border-radius: var(--radius-pill);
+  background: rgba(239, 68, 68, 0.14);
+  color: var(--danger-ink);
+  font: 700 12px/1 var(--font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* THE KEY. Idle it stands proud and lit at the rim; listening it fills with
+   warm light and breathes with his own voice; thinking, a ring turns around
+   it; speaking, it glows slowly. Tapping it is always the one right move. */
+.key {
+  --lvl: 0;                  /* his voice level, 0 to 1, set by app.js through the CSSOM */
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--key);
+  height: var(--key);
+  margin: var(--space-2) 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.key-glass {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 36%, rgba(251, 191, 36, 0.2), rgba(229, 181, 36, 0.07) 46%, rgba(18, 18, 18, 0.96) 74%),
+    #121212;
+  box-shadow:
+    0 0 0 2px rgba(229, 181, 36, 0.62),
+    0 0 56px -10px rgba(229, 181, 36, 0.55),
+    inset 0 -22px 40px rgba(0, 0, 0, 0.6),
+    inset 0 10px 22px rgba(255, 236, 170, 0.1);
+  transition: background var(--duration-slow) var(--ease-out),
+              box-shadow var(--duration-slow) var(--ease-out),
+              transform 90ms linear;
+}
+.key-ring {
+  position: absolute;
+  inset: -12px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.key-label {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 76%;
+  text-align: center;
+}
+.k-state {
+  min-height: 11px;
+  color: rgba(229, 181, 36, 0.72);
+  font: 600 11px/1 var(--font-mono);
+  letter-spacing: 0.24em;
+}
+.k-act {
+  color: var(--color-primary-bright);
+  /* sized to the key (58vw): "TAP TO CUT IN" holds one line on a 360 px
+     phone, and if a short screen forces a wrap, the two lines balance */
+  font: 700 clamp(14px, 4vw, 22px)/1.15 var(--font-sans);
+  letter-spacing: 0.12em;
+  text-wrap: balance;
+  text-shadow: 0 0 18px rgba(229, 181, 36, 0.45);
+}
+
+.key[data-state="listening"] .key-glass {
+  background: radial-gradient(circle at 50% 38%, #ffe8a6, #f2c443 42%, #c9961a 70%, #6b4f0c 100%);
+  box-shadow:
+    0 0 0 2px rgba(251, 191, 36, 0.9),
+    0 0 84px -6px rgba(251, 191, 36, 0.7),
+    inset 0 -18px 30px rgba(0, 0, 0, 0.35),
+    inset 0 8px 16px rgba(255, 255, 255, 0.25);
+  transform: scale(calc(1 + var(--lvl) * 0.05));
+}
+.key[data-state="listening"] .k-state,
+.key[data-state="listening"] .k-act {
+  color: #1a1306;
+  text-shadow: none;
+}
+.key[data-state="listening"].live .key-ring {
+  border-color: rgba(251, 191, 36, 0.75);
+  animation: goose-pulse 1.6s var(--ease-out) infinite;
+}
+@keyframes goose-pulse {
+  from { transform: scale(0.96); opacity: 0.95; }
+  to { transform: scale(1.16); opacity: 0; }
+}
+
+.key[data-state="thinking"] .key-ring {
+  inset: -11px;
+  border: 0;
+  background: conic-gradient(from 0deg, rgba(229, 181, 36, 0) 0 55%, rgba(251, 191, 36, 0.95) 88%, rgba(229, 181, 36, 0) 100%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+          mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  animation: goose-turn 1.2s linear infinite;
+}
+.key[data-state="thinking"] .key-glass {
+  background:
+    radial-gradient(circle at 50% 36%, rgba(251, 191, 36, 0.12), rgba(229, 181, 36, 0.04) 46%, rgba(18, 18, 18, 0.97) 74%),
+    #121212;
+  box-shadow:
+    0 0 0 2px rgba(229, 181, 36, 0.35),
+    0 0 40px -12px rgba(229, 181, 36, 0.4),
+    inset 0 -22px 40px rgba(0, 0, 0, 0.6),
+    inset 0 10px 22px rgba(255, 236, 170, 0.08);
+}
+@keyframes goose-turn { to { transform: rotate(1turn); } }
+
+.key[data-state="speaking"] .key-glass {
+  background:
+    radial-gradient(circle at 50% 38%, rgba(251, 191, 36, 0.42), rgba(229, 181, 36, 0.16) 48%, rgba(18, 18, 18, 0.95) 76%),
+    #141414;
+  animation: goose-breathe 2.4s ease-in-out infinite;
+}
+@keyframes goose-breathe {
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(251, 191, 36, 0.85),
+      0 0 92px -4px rgba(251, 191, 36, 0.6),
+      inset 0 -22px 40px rgba(0, 0, 0, 0.55),
+      inset 0 10px 22px rgba(255, 236, 170, 0.14);
+  }
+}
+
+.compose {
+  display: flex;
+  gap: var(--space-2);
+  width: 100%;
+  max-width: 560px;
+}
+.text {
+  flex: 1;
+  min-width: 0;
+  min-height: 46px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-border-bright);
+  border-radius: var(--radius-xl);
+  background: var(--color-bg-soft);
+  color: var(--color-fg);
+  font: 400 16px/1.2 var(--font-sans);   /* 16 px: a phone never zooms into the field */
+}
+.text::placeholder { color: var(--color-fg-subtle); }
+.send {
+  min-width: 68px;
+  min-height: 46px;
+  padding: 0 var(--space-3);
+  border: 1px solid rgba(229, 181, 36, 0.5);
+  border-radius: var(--radius-xl);
+  background: var(--color-primary-muted);
+  color: var(--color-primary);
+  font: 700 12px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+}
+/* four chips on one row from 360 px up; they wrap rather than ever scroll sideways */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+}
+.chip {
+  min-height: 44px;
+  padding: 0 clamp(7px, 2.2vw, 11px);
+  border: 1px solid var(--color-border-bright);
+  border-radius: var(--radius-pill);
+  background: var(--color-bg-soft);
+  color: var(--color-fg-dim);
+  font: 600 clamp(10px, 2.9vw, 11px)/1 var(--font-mono);
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.chip[aria-expanded="true"] { color: var(--color-primary); border-color: rgba(229, 181, 36, 0.45); }
+.chip[aria-pressed="true"] { color: var(--color-primary); border-color: rgba(229, 181, 36, 0.45); }
+.chip[aria-pressed="false"] { color: var(--color-fg-subtle); }
+
+/* ── sheets ────────────────────────────────────────────────────────────── */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transition: opacity var(--duration-normal);
+}
+.scrim.on { opacity: 1; }
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 250;
+  display: flex;
+  flex-direction: column;
+  max-width: 720px;
+  max-height: calc(100vh - var(--bar-h) - 12px);
+  max-height: calc(100dvh - var(--bar-h) - env(safe-area-inset-top) - 12px);
+  margin: 0 auto;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--color-panel);
+  border-top: 1px solid var(--color-border-bright);
+  border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
+  box-shadow: var(--shadow-lg);
+  transform: translateY(102%);
+  transition: transform var(--duration-normal) var(--ease-emphasized);
+}
+.sheet.on { transform: none; }
+.sheet-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+.sheet-title {
+  flex: 1;
+  margin: 0;
+  color: var(--color-primary);
+  font: 700 12px/1.3 var(--font-mono);
+  letter-spacing: 0.2em;
+}
+.sheet-title:focus { outline: none; }
+.x {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--color-fg-muted);
+  font: 700 11px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+}
+.sheet-body {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-4) var(--space-5) var(--space-6);
+}
+.quiet {
+  margin: var(--space-2) 0;
+  color: var(--color-fg-subtle);
+  font: 400 15px/1.5 var(--font-sans);
+}
+.fine {
+  margin: var(--space-3) 0 0;
+  color: var(--color-fg-subtle);
+  font: 400 13px/1.5 var(--font-sans);
+}
+
+/* the rail */
+.rail-say {
+  margin: 0 0 var(--space-2);
+  color: var(--goose-ink);
+  font: 500 clamp(19px, 5.2vw, 23px)/1.35 var(--font-sans);
+}
+.rail-sub {
+  margin: 0 0 var(--space-5);
+  color: var(--color-fg-dim);
+  font: 400 15px/1.5 var(--font-sans);
+}
+.rail-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 58px;
+  margin: 0 0 var(--space-3);
+  border: 1.5px solid var(--color-border-bright);
+  border-radius: var(--radius-xl);
+  color: var(--color-fg);
+  font: 700 17px/1 var(--font-sans);
+  letter-spacing: 0.08em;
+  text-decoration: none;
+}
+.rail-btn.primary { background: #f3efe4; border-color: #f3efe4; color: #121212; }
+.rail-btn.gold { border-color: rgba(229, 181, 36, 0.7); color: var(--color-primary-bright); }
+
+/* the fields (sponsor) */
+.field-label {
+  display: block;
+  margin: var(--space-2) 0;
+  color: var(--color-fg-dim);
+  font: 500 15px/1.4 var(--font-sans);
+}
+.field-row {
+  display: flex;
+  gap: var(--space-2);
+}
+.field {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-border-bright);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-soft);
+  color: var(--color-fg);
+  font: 400 17px/1.2 var(--font-sans);
+}
+.field-btn {
+  min-width: 72px;
+  min-height: 48px;
+  border: 1px solid rgba(229, 181, 36, 0.5);
+  border-radius: var(--radius-lg);
+  background: var(--color-primary-muted);
+  color: var(--color-primary);
+  font: 700 12px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+}
+.field-note {
+  margin: var(--space-2) 0 0;
+  min-height: 1.4em;
+  color: var(--color-fg-muted);
+  font: 400 13px/1.4 var(--font-sans);
+}
+.quiet-btn {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-fg-subtle);
+  font: 600 11px/1 var(--font-mono);
+  letter-spacing: 0.12em;
+}
+
+/* lessons */
+.lesson {
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--color-border);
+}
+.lesson:first-child { border-top: 0; }
+.lesson-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  font: 600 11px/1 var(--font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.lane { color: var(--color-primary); }
+.lstat { color: var(--color-fg-muted); }
+.ldate { color: var(--color-fg-subtle); }
+.lesson-st {
+  margin: 0;
+  color: var(--color-fg);
+  font: 400 16px/1.5 var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.lesson-his {
+  margin: var(--space-1) 0 0;
+  color: var(--color-fg-subtle);
+  font: 400 13px/1.45 var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.lesson.gone .lesson-st { color: var(--color-fg-subtle); text-decoration: line-through; }
+.lesson-acts {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.act {
+  min-width: 88px;
+  min-height: 44px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-border-bright);
+  border-radius: var(--radius-pill);
+  background: var(--color-bg-soft);
+  color: var(--color-fg-dim);
+  font: 700 11px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+}
+.act.keep { border-color: rgba(229, 181, 36, 0.6); color: var(--color-primary); }
+
+/* what I know */
+.know-sec { margin: 0 0 var(--space-5); }
+.know-h {
+  margin: 0 0 var(--space-2);
+  color: var(--color-primary);
+  font: 700 11px/1.3 var(--font-mono);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.know-line { padding: var(--space-2) 0; }
+.know-t {
+  margin: 0;
+  color: var(--color-fg);
+  font: 400 15px/1.5 var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.know-m {
+  margin: 2px 0 0;
+  color: var(--color-fg-subtle);
+  font: 500 11.5px/1.4 var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+/* settings */
+.set-h {
+  margin: var(--space-2) 0 var(--space-3);
+  color: var(--color-primary);
+  font: 700 11px/1.3 var(--font-mono);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.set-h:not(:first-child) { margin-top: var(--space-8); }
+.facts { margin: 0; }
+.fact {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--color-border);
+}
+.fact dt {
+  flex: none;
+  color: var(--color-fg-muted);
+  font: 400 14px/1.45 var(--font-sans);
+}
+.fact dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--color-fg);
+  font: 400 14px/1.45 var(--font-sans);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.wide-btn {
+  width: 100%;
+  min-height: 48px;
+  margin-top: var(--space-5);
+  border: 1px solid var(--color-border-bright);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-soft);
+  color: var(--color-fg-dim);
+  font: 700 12px/1 var(--font-mono);
+  letter-spacing: 0.16em;
+}
+
+/* ── the toast ─────────────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  z-index: 400;
+  max-width: min(92vw, 520px);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-xl);
+  background: var(--color-elevated);
+  color: var(--color-fg);
+  font: 500 14px/1.4 var(--font-sans);
+  text-align: center;
+  box-shadow: var(--shadow-lg);
+  transform: translateX(-50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-normal);
+}
+.toast.on { opacity: 1; }
+
+/* ── a phone on its side (a mount can hold it either way): the talk on the
+   left, the key on the right, filling its column's height ─────────────── */
+@media (orientation: landscape) and (max-height: 560px) {
+  :root { --key: min(36vw, 50dvh); }
+  .talk { flex-direction: row; }
+  .thread { flex: 1 1 54%; }
+  .deck {
+    flex: 0 0 46%;
+    justify-content: center;
+    overflow-y: auto;
+  }
+  .empty-how { display: none; }
+}
+
+/* ── honor reduced motion: nothing pulses, turns, breathes or slides ────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  .key[data-state="listening"] .key-glass { transform: none; }
+  .key[data-state="listening"].live .key-ring { border-color: rgba(251, 191, 36, 0.75); }
+  .key[data-state="thinking"] .key-ring { transform: rotate(0.15turn); }   /* a still arc */
+  .key[data-state="speaking"] .key-glass {
+    box-shadow:
+      0 0 0 2px rgba(251, 191, 36, 0.85),
+      0 0 80px -6px rgba(251, 191, 36, 0.55),
+      inset 0 -22px 40px rgba(0, 0, 0, 0.55),
+      inset 0 10px 22px rgba(255, 236, 170, 0.14);
+  }
+}
