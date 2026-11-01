@@ -258,18 +258,14 @@ class TestManifestIconsWorker(unittest.TestCase):
             self.assertEqual(f"{w}x{h}", sizes, src)
         self.assertIn('<link rel="manifest" href="manifest.webmanifest">', INDEX)
 
-    def test_icons_check_out_and_come_from_the_helmet(self):
-        # the badge corner, the safe circle and the tile corners, read back from the PNGs
+    def test_icons_check_out_and_come_from_his_picture(self):
+        # the safe circle, the tile's corners and glow line, the gold visor, read back from the PNGs
         r = subprocess.run([PY, str(SHELL / "tools" / "make_icons.py"), "--check"],
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
-        # the drawings the PNGs are rendered from ship with them, and load nothing
-        for src in ("goose.svg", "goose-maskable.svg"):
-            svg = (SHELL / "icons" / src).read_text()
-            self.assertIn('viewBox="0 0 512 512"', svg, src)
-            self.assertNotIn("<script", svg.lower(), src)
-            self.assertNotRegex(svg, r"""(?i)(href|src)\s*=\s*["'](https?:|//)""",
-                                f"{src} must load nothing from outside")
+        # cut from his Gemini picture, never redrawn: no drawing ships beside the three PNGs
+        shipped = sorted(p.name for p in (SHELL / "icons").iterdir() if not p.name.startswith("."))
+        self.assertEqual(shipped, ["icon-192.png", "icon-512.png", "icon-maskable-512.png"])
 
     def test_service_worker(self):
         # any version: every shell change bumps it, and the test must never stand in the way

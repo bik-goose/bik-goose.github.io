@@ -1,56 +1,63 @@
 #!/usr/bin/env python3
-"""make_icons.py — render Goose's three app icons from the helmet, and check them.
+"""make_icons.py — cut Goose's three app icons from his helmet picture, and check them.
 
-What it is for: the mark is a fighter pilot's helmet (his 11-01 call: Goose is
-the man in the right seat), drawn in gold on the dark tile, the one lit thing
-in a dark cab. The drawing lives in two SVGs; three files come out of them:
+What it is for: the mark is the fighter pilot's helmet he made in Gemini on 11-01
+(Goose is the man in the right seat). It is cut from his picture the way Atlas's
+badge was, crop and resize, never redrawn. The picture stays out of this public
+repo, at ~/Goose/design/goose-helmet-gemini.jpeg (his download,
+Gemini_Generated_Image_rx7jeurx7jeurx7j.jpeg; a copy sits in Drive's
+Operations/Marketing beside the Atlas and Forge art).
 
-  icons/goose.svg               the helmet on a rounded dark tile, transparent corners
-  icons/goose-maskable.svg      the same helmet on a tile that runs to every edge,
-                                the whole mark inside the inner 80% safe circle
+  icons/icon-192.png            purpose "any": his tile, glow line and all, the corners cut clear
+  icons/icon-512.png            purpose "any": the same, at 512
+  icons/icon-maskable-512.png   purpose "maskable", full bleed, so Android's mask never clips
+                                the helmet: the whole helmet sits inside the inner 80% safe
+                                circle, and his blue panel fades into its own colour, carried
+                                out to the edges and darkening to his picture's navy
 
-  icons/icon-192.png            purpose "any", from goose.svg
-  icons/icon-512.png            purpose "any", from goose.svg
-  icons/icon-maskable-512.png   purpose "maskable", from goose-maskable.svg, so
-                                Android's mask never clips the helmet
+--check reads every shipped icon back and refuses (exit 1) if a size or the PNG
+format is wrong, if the tile's corners are not clear or its glow line is gone, if
+the maskable tile has a see-through pixel, if any of the helmet reaches past the
+safe circle, or if the gold visor is missing (the sign his picture never made it in).
 
-Nothing gold is drawn in the top-right corner: that is where the launcher puts
-its badge. --check reads every shipped icon back and refuses (exit 1) if gold
-ever reaches there, if a maskable icon's gold leaves the safe circle, or if a
-tile's corners are wrong.
-
-How: --render draws each SVG at its exact pixel size with headless Chrome (a
-throwaway profile, so no window shows and his own browser is never touched;
-the same way Almanac's tools/build_icons.py renders), then PIL writes it back
-as 8-bit RGBA. --check is the standard library alone: a real PNG reader below.
+How: --render needs PIL and numpy (his python has both). --check is the standard
+library alone: a real PNG reader below, so the suite runs it anywhere.
 
 Usage:
-  python3 tools/make_icons.py --render     render the three PNGs into shell/icons/
+  python3 tools/make_icons.py --render     cut the three PNGs into shell/icons/
   python3 tools/make_icons.py --check      read the shipped icons back and check them; writes nothing
 
-After a change to the mark, bump CACHE in sw.js, or a phone keeps the old icon.
+After a new picture: re-measure the boxes below, render, check, then bump CACHE in
+sw.js, or a phone keeps the old icon.
 """
 import math
 import os
 import struct
-import subprocess
 import sys
-import tempfile
 import zlib
 from pathlib import Path
 
 ICONS = Path(__file__).resolve().parent.parent / "icons"
-CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+PICTURE = Path(__file__).resolve().parents[2] / "design" / "goose-helmet-gemini.jpeg"
 
-# (file name, size, maskable, the SVG it is drawn from)
+# (file name, size, maskable)
 JOBS = (
-    ("icon-192.png", 192, False, "goose.svg"),
-    ("icon-512.png", 512, False, "goose.svg"),
-    ("icon-maskable-512.png", 512, True, "goose-maskable.svg"),
+    ("icon-192.png", 192, False),
+    ("icon-512.png", 512, False),
+    ("icon-maskable-512.png", 512, True),
 )
 
-# The badge box: the top-right fifth of the canvas, each way. No gold there.
-BADGE_BOX = 0.20
+# Where things sit in his picture, measured once by eye and by pixel.
+PICTURE_SIZE = (2752, 1536)
+TILE = (745, 135, 2007, 1397)       # the tile's outer edge, glow line included
+TILE_RADIUS = 0.235                 # its corner, as a share of its side
+PANEL = (792, 178, 1960, 1365)      # the blue panel inside the glow line's bevel
+PANEL_RADIUS = 235                  # the panel's corner, picture px
+HELMET = (1277, 825, 619)           # the smallest circle holding the whole helmet: x, y, radius
+FIT = 0.39                          # that circle's radius in the maskable icon, as a share of its side
+EDGE = 45                           # where the panel ends, the helmet (its hose) fades over this, picture px
+FADE = 150                          # the panel's grid fades into the field over this, picture px
+
 # Android crops a maskable icon to shapes no smaller than this circle.
 SAFE_RADIUS = 0.40
 
@@ -118,14 +125,14 @@ def decode_png(data):
     return width, height, rows
 
 
-def warmth(r, g, b, a):
-    """How gold a pixel is: gold has red far above blue; the dark tile and greys do not.
-    Above 4 is any trace of gold (even a faint edge); above 40 is the mark itself."""
-    return r - b if a else 0
+def is_gold(r, g, b):
+    """The visor's gold: red far above blue. His blue panel and the grey helmet never are."""
+    return r - b > 40
 
 
-def is_gold(r, g, b, a):
-    return warmth(r, g, b, a) > 40
+def is_helmet(r, g, b):
+    """Grey, black or gold against his blue: the helmet. The panel, its grid and the navy all run blue."""
+    return b - r < 22
 
 
 def judge(name, size, maskable, data):
@@ -134,83 +141,176 @@ def judge(name, size, maskable, data):
         w, h, rows = decode_png(data)
     except Exception as e:                        # a broken file is a finding, not a crash
         return [f"{name}: {e}"]
-    problems = []
     if (w, h) != (size, size):
-        problems.append(f"{name}: is {w}x{h}, not {size}x{size}")
-        return problems
-    box = int(size * BADGE_BOX)
-    for y in range(box):
-        row = rows[y]
-        for x in range(size - box, size):
-            if warmth(*row[x * 4:x * 4 + 4]) > 4:
-                problems.append(f"{name}: gold in the badge corner at ({x},{y})")
-                return problems
-    corner_alpha = rows[0][3]
-    if maskable and corner_alpha != 255:
-        problems.append(f"{name}: a maskable tile must run to the edges (corner alpha {corner_alpha})")
-    if not maskable and corner_alpha != 0:
-        problems.append(f"{name}: the tile's corners must be transparent (corner alpha {corner_alpha})")
-    c, limit = size / 2.0, SAFE_RADIUS * size + 1.0
-    gold = 0
+        return [f"{name}: is {w}x{h}, not {size}x{size}"]
+    problems = []
+    corners = [rows[y][x * 4 + 3] for y in (0, size - 1) for x in (0, size - 1)]
+    if maskable:
+        see_through = sum(1 for row in rows for a in row[3::4] if a != 255)
+        if see_through:
+            problems.append(f"{name}: {see_through} see-through pixels; a maskable tile runs to every edge")
+    else:
+        if any(corners):
+            problems.append(f"{name}: the tile's corners must be clear (corner alpha {corners})")
+        if rows[size // 2][(size // 2) * 4 + 3] != 255:
+            problems.append(f"{name}: the tile's middle must be solid")
+        band, m = max(2, round(size * 0.06)), size // 2
+        sides = {"left": [(i, m) for i in range(band)], "right": [(size - 1 - i, m) for i in range(band)],
+                 "top": [(m, i) for i in range(band)], "bottom": [(m, size - 1 - i) for i in range(band)]}
+        for side, pts in sides.items():
+            if max(rows[y][x * 4 + 2] for x, y in pts) < 200:
+                problems.append(f"{name}: no glow line along the tile's {side} edge; it is not his tile")
+    c, limit = size / 2.0, SAFE_RADIUS * size
+    gold = outside = 0
     for y, row in enumerate(rows):
         for x in range(size):
-            if is_gold(*row[x * 4:x * 4 + 4]):
+            r, g, b, a = row[x * 4:x * 4 + 4]
+            if not a:
+                continue
+            if is_gold(r, g, b):
                 gold += 1
-                if maskable and math.hypot(x + 0.5 - c, y + 0.5 - c) > limit:
-                    problems.append(f"{name}: gold outside the safe circle at ({x},{y})")
-                    return problems
-    if gold < size * size * 0.05:
-        problems.append(f"{name}: hardly any gold; the helmet is missing")
+            if maskable and is_helmet(r, g, b) and math.hypot(x + 0.5 - c, y + 0.5 - c) > limit:
+                outside += 1
+    if outside:
+        problems.append(f"{name}: {outside} pixels of helmet outside the safe circle; the mask would clip it")
+    if gold < size * size * 0.01:
+        problems.append(f"{name}: hardly any gold; the visor is missing, so his picture is not in it")
     return problems
 
 
-def render_one(svg, size, out):
-    """Draw one SVG at exactly size x size with headless Chrome, written as 8-bit RGBA."""
+def imaging():
+    """PIL and numpy, for --render only."""
     try:
-        from PIL import Image
+        import numpy as np
+        from PIL import Image, ImageDraw, ImageFilter
     except ImportError:
-        die("--render needs PIL for this python; --check does not")
-    if not os.path.exists(CHROME):
-        die(f"--render needs Google Chrome at {CHROME}")
-    with tempfile.TemporaryDirectory() as tmp:
-        page = Path(tmp) / "page.html"
-        page.write_text("<!doctype html><meta charset=utf-8><style>html,body{margin:0;"
-                        "background:transparent}svg{display:block;width:%dpx;height:%dpx}</style>%s"
-                        % (size, size, svg.read_text()))
-        shot = Path(tmp) / "shot.png"
-        r = subprocess.run([CHROME, "--headless=new", "--disable-gpu", "--hide-scrollbars",
-                            f"--user-data-dir={Path(tmp) / 'profile'}",
-                            "--default-background-color=00000000",
-                            f"--window-size={size},{size}", f"--screenshot={shot}", page.as_uri()],
-                           capture_output=True, text=True, timeout=90)
-        if r.returncode != 0 or not shot.is_file():
-            die(f"Chrome could not draw {svg.name} at {size}: {r.stderr.strip()[-300:]}")
-        img = Image.open(shot).convert("RGBA")
-        if img.size != (size, size):
-            die(f"Chrome drew {svg.name} at {img.size}, not {size}x{size}")
-        tmp_out = out.with_suffix(".tmp.png")
-        img.save(tmp_out, format="PNG", optimize=True)
-        os.replace(tmp_out, out)
+        die("--render needs PIL and numpy for this python; --check does not")
+    return np, Image, ImageDraw, ImageFilter
+
+
+def smooth(t):
+    np = imaging()[0]
+    t = np.clip(t, 0, 1)
+    return t * t * (3 - 2 * t)
+
+
+def rounded_alpha(w, h, radius, feather):
+    """1 inside a rounded rect, easing to 0 across `feather` px at its edge."""
+    np = imaging()[0]
+    y, x = np.mgrid[0:h, 0:w].astype(np.float32)
+    qx = np.abs(x - (w - 1) / 2) - (w / 2 - radius)
+    qy = np.abs(y - (h - 1) / 2) - (h / 2 - radius)
+    d = np.hypot(np.maximum(qx, 0), np.maximum(qy, 0)) + np.minimum(np.maximum(qx, qy), 0) - radius
+    return smooth(-d / max(feather, 1e-6))
+
+
+def blur(arr, radius):
+    np, Image, _, ImageFilter = imaging()
+    img = Image.fromarray(np.clip(arr + 0.5, 0, 255).astype(np.uint8))
+    return np.asarray(img.filter(ImageFilter.GaussianBlur(radius)), np.float32)
+
+
+def push_pull(rgb, known):
+    """Fill the unknown pixels from what surrounds them (a pyramid fill)."""
+    np, Image, _, _ = imaging()
+    levels = []
+    p, w = rgb * known[..., None], known
+    while min(w.shape) > 2:
+        levels.append((p, w))
+        h2, w2 = (w.shape[0] + 1) // 2, (w.shape[1] + 1) // 2
+        pp = np.zeros((h2 * 2, w2 * 2, 3), np.float32)
+        pp[:p.shape[0], :p.shape[1]] = p
+        ww = np.zeros((h2 * 2, w2 * 2), np.float32)
+        ww[:w.shape[0], :w.shape[1]] = w
+        p = pp.reshape(h2, 2, w2, 2, 3).mean(axis=(1, 3))
+        w = ww.reshape(h2, 2, w2, 2).mean(axis=(1, 3))
+    c = p / np.maximum(w, 1e-6)[..., None]
+    for p, w in reversed(levels):
+        up = np.stack([np.asarray(Image.fromarray(c[..., i]).resize((w.shape[1], w.shape[0]), Image.BILINEAR))
+                       for i in range(3)], -1)
+        c = p + up * (1 - np.clip(w, 0, 1)[..., None])
+    return c
+
+
+def tile_icon(picture, size):
+    """His tile as Gemini drew it, cropped and resized, the corners outside it cut clear."""
+    _, Image, ImageDraw, _ = imaging()
+    tile = picture.crop(TILE).resize((size, size), Image.LANCZOS).convert("RGBA")
+    edge = Image.new("L", (size * 4, size * 4), 0)
+    ImageDraw.Draw(edge).rounded_rectangle((0, 0, size * 4 - 1, size * 4 - 1),
+                                           radius=TILE_RADIUS * size * 4, fill=255)
+    tile.putalpha(edge.resize((size, size), Image.LANCZOS))
+    return tile
+
+
+def maskable_icon(picture, size):
+    """His panel, scaled so the whole helmet fits the safe circle, on its own colour carried to the edges."""
+    np, Image, _, ImageFilter = imaging()
+    s = FIT * size / HELMET[2]                    # icon px per picture px
+    panel = picture.crop(PANEL)
+    pw, ph = panel.size
+    fw, fh = round(pw * s), round(ph * s)
+    ox = round(size / 2 + (PANEL[0] - HELMET[0]) * s)
+    oy = round(size / 2 + (PANEL[1] - HELMET[1]) * s)
+    if ox < 0 or oy < 0 or ox + fw > size or oy + fh > size:
+        die("the panel no longer fits inside the maskable icon; re-measure HELMET or lower FIT")
+    arr = np.asarray(panel, np.float32)
+    inside = rounded_alpha(pw, ph, PANEL_RADIUS, 1) > 0.5
+    grey = ((arr[..., 2] - arr[..., 0]) < 22) & inside      # is_helmet, over the whole panel
+    # the field: the panel with the helmet lifted out, filled from around it, softened
+    lifted = np.asarray(Image.fromarray((grey * 255).astype(np.uint8)).filter(ImageFilter.BoxBlur(15))) > 0
+    field = blur(push_pull(arr, (inside & ~lifted).astype(np.float32)), 25)
+    ring = inside & ~(rounded_alpha(pw, ph, PANEL_RADIUS, 40) > 0.99)
+    rim = field[ring].mean(axis=0)
+    navy = np.concatenate([np.asarray(picture.crop((0, 0, 600, PICTURE_SIZE[1])), np.float32).reshape(-1, 3),
+                           np.asarray(picture.crop((PICTURE_SIZE[0] - 600, 0) + PICTURE_SIZE), np.float32)
+                           .reshape(-1, 3)]).mean(axis=0)
+    # the background: the field carried past the panel's edge, settling to its rim colour, then to his navy
+    yy, xx = np.mgrid[0:size, 0:size].astype(np.float32)
+    fx = np.clip(HELMET[0] - PANEL[0] + (xx + 0.5 - size / 2) / s, 0, pw - 1).astype(int)
+    fy = np.clip(HELMET[1] - PANEL[1] + (yy + 0.5 - size / 2) / s, 0, ph - 1).astype(int)
+    away = np.hypot(np.maximum(np.maximum(ox - xx, xx - (ox + fw)), 0),
+                    np.maximum(np.maximum(oy - yy, yy - (oy + fh)), 0))
+    u = smooth(away / (0.12 * size))[..., None]
+    bg = blur(field[fy, fx] * (1 - u) + rim * u, size / 32)
+    t = 0.55 * smooth((np.hypot(xx + 0.5 - size / 2, yy + 0.5 - size / 2) / size - 0.30) / 0.41)[..., None]
+    bg = bg * (1 - t) + navy * t
+    # the panel itself, sharp: its grid fades into the field; the helmet stays solid except where the panel ends
+    helmet = np.asarray(Image.fromarray((grey * 255).astype(np.uint8)).filter(ImageFilter.BoxBlur(6))) > 0
+    helmet = Image.fromarray((helmet * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(4))
+    helmet = np.asarray(helmet.resize((fw, fh), Image.LANCZOS), np.float32) / 255
+    alpha = np.maximum(rounded_alpha(fw, fh, PANEL_RADIUS * s, FADE * s),
+                       helmet * rounded_alpha(fw, fh, PANEL_RADIUS * s, EDGE * s))[..., None]
+    fore = np.asarray(panel.resize((fw, fh), Image.LANCZOS), np.float32)
+    bg[oy:oy + fh, ox:ox + fw] = fore * alpha + bg[oy:oy + fh, ox:ox + fw] * (1 - alpha)
+    return Image.fromarray(np.clip(bg + 0.5, 0, 255).astype(np.uint8)).convert("RGBA")
 
 
 def render(icon_dir):
-    for name, size, maskable, src in JOBS:
-        svg = icon_dir / src
-        if not svg.is_file():
-            die(f"{svg} is missing; nothing rendered")
-        render_one(svg, size, icon_dir / name)
-        problems = judge(name, size, maskable, (icon_dir / name).read_bytes())
+    _, Image, _, _ = imaging()
+    if not PICTURE.is_file():
+        die(f"{PICTURE} is missing; nothing rendered")
+    picture = Image.open(PICTURE).convert("RGB")
+    if picture.size != PICTURE_SIZE:
+        die(f"{PICTURE.name} is {picture.size[0]}x{picture.size[1]}, not "
+            f"{PICTURE_SIZE[0]}x{PICTURE_SIZE[1]}: a new picture, so re-measure the boxes first")
+    for name, size, maskable in JOBS:
+        img = maskable_icon(picture, size) if maskable else tile_icon(picture, size)
+        out = icon_dir / name
+        tmp_out = out.with_suffix(".tmp.png")
+        img.save(tmp_out, format="PNG", optimize=True)
+        problems = judge(name, size, maskable, tmp_out.read_bytes())
         if problems:
+            tmp_out.unlink()
             die("; ".join(problems))
-        print(f"  {name:<24} {size}x{size}  from {src}", flush=True)
-    print(f"{len(JOBS)} icons rendered into {icon_dir}. Bump CACHE in sw.js so phones take them.")
+        os.replace(tmp_out, out)
+        print(f"  {name:<24} {size}x{size}  {'maskable' if maskable else 'any'}", flush=True)
+    print(f"{len(JOBS)} icons cut from {PICTURE.name} into {icon_dir}. Bump CACHE in sw.js so phones take them.")
 
 
 def check(icon_dir):
     problems = []
-    for name, size, maskable, src in JOBS:
-        if not (icon_dir / src).is_file():
-            problems.append(f"{src}: missing (the drawing {name} comes from)")
+    for name, size, maskable in JOBS:
         path = icon_dir / name
         if not path.is_file():
             problems.append(f"{name}: missing")
