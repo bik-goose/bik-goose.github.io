@@ -258,20 +258,23 @@ class TestManifestIconsWorker(unittest.TestCase):
             self.assertEqual(f"{w}x{h}", sizes, src)
         self.assertIn('<link rel="manifest" href="manifest.webmanifest">', INDEX)
 
-    def test_icons_check_out_and_are_cut_the_same_every_time(self):
+    def test_icons_check_out_and_come_from_the_helmet(self):
+        # the badge corner, the safe circle and the tile corners, read back from the PNGs
         r = subprocess.run([PY, str(SHELL / "tools" / "make_icons.py"), "--check"],
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
-        with tempfile.TemporaryDirectory() as tmp:
-            r = subprocess.run([PY, str(SHELL / "tools" / "make_icons.py"), "--out", tmp],
-                               capture_output=True, text=True)
-            self.assertEqual(r.returncode, 0, r.stderr)
-            for name in ("icon-192.png", "icon-512.png", "icon-maskable-512.png"):
-                self.assertEqual((Path(tmp) / name).read_bytes(), (SHELL / "icons" / name).read_bytes(),
-                                 f"{name} in the repo is not what make_icons.py cuts")
+        # the drawings the PNGs are rendered from ship with them, and load nothing
+        for src in ("goose.svg", "goose-maskable.svg"):
+            svg = (SHELL / "icons" / src).read_text()
+            self.assertIn('viewBox="0 0 512 512"', svg, src)
+            self.assertNotIn("<script", svg.lower(), src)
+            self.assertNotRegex(svg, r"""(?i)(href|src)\s*=\s*["'](https?:|//)""",
+                                f"{src} must load nothing from outside")
 
     def test_service_worker(self):
-        self.assertRegex(SW, r'const CACHE = "goose-shell-v1";')
+        # any version: every shell change bumps it, and the test must never stand in the way
+        self.assertRegex(SW, r'const CACHE = "goose-shell-v\d+";')
+        self.assertNotIn('const CACHE = "goose-shell-v1";', SW, "v1 is what phones already hold")
         listed = re.search(r"const SHELL = \[(.*?)\];", SW, re.S).group(1)
         files = set(re.findall(r'"\./([^"]*)"', listed))
         self.assertEqual(files, {"", "index.html", "app.js", "app.css", "manifest.webmanifest",

@@ -32,7 +32,7 @@ the tailnet. The API contract is `../docs/SPEC.md`: the CORE server routes and t
 | `app.css` | the look; BMH tokens copied from `~/Local Models/bik/design/` |
 | `sw.js` | the offline copy: cache-first for the shell, never `/api/`, never another origin |
 | `manifest.webmanifest` | installs as **Goose** |
-| `icons/` | cut by `tools/make_icons.py` (standard library only) |
+| `icons/` | the fighter pilot's helmet: drawn in `goose.svg` and `goose-maskable.svg`, rendered and checked by `tools/make_icons.py` |
 | `tools/smoke.js` | boots `app.js` in Node against a scripted Mac and walks every path |
 | `tools/test_shell.py` | the shell's rules, read from the files, plus the smoke run |
 
@@ -58,7 +58,8 @@ then install. The page names itself `phone` (or `preview` on 127.0.0.1) when it 
 - **Bump `CACHE` in `sw.js` on every change**, or the phone keeps serving the old page. A new
   version takes over in the background, and the page reloads into it only when he is idle: never
   mid-take, never mid-answer, never with words typed or a sheet open.
-- After a change to the mark: `python3 tools/make_icons.py`, then bump `CACHE`.
+- After a change to the mark: edit the SVGs, `python3 tools/make_icons.py --render` (headless Chrome, a throwaway
+  profile), `python3 tools/make_icons.py --check`, then bump `CACHE`.
 - The checks: `python3 tools/test_shell.py` (it runs `node --check` and `node tools/smoke.js`).
 - Escape hatch: open the page with `#reset` to drop its worker and caches. The key and the
   sponsor's number stay.

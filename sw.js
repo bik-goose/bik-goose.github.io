@@ -18,7 +18,7 @@
      never slip yesterday's file into today's version;
    - install is all or nothing (Almanac card #99): one missed file fails it,
      and the old version stays whole and live. */
-const CACHE = "goose-shell-v1";
+const CACHE = "goose-shell-v2";
 const PREFIX = "goose-shell-";
 const SHELL = [
   "./",

@@ -1,29 +1,31 @@
 #!/usr/bin/env python3
-"""make_icons.py — cut Goose's three app icons with the standard library alone.
+"""make_icons.py — render Goose's three app icons from the helmet, and check them.
 
-What it is for: the mark is the key. A dark tile with one warm gold ring, the
-way the key on the page is the one lit thing in a dark cab. Three files come
-out of the one drawing:
+What it is for: the mark is a fighter pilot's helmet (his 11-01 call: Goose is
+the man in the right seat), drawn in gold on the dark tile, the one lit thing
+in a dark cab. The drawing lives in two SVGs; three files come out of them:
 
-  icons/icon-192.png            purpose "any": a rounded dark tile, transparent corners
-  icons/icon-512.png            the same at 512
-  icons/icon-maskable-512.png   purpose "maskable": the tile runs to every edge and
-                                the ring sits inside the inner 80% safe circle, so
-                                Android's mask never clips it
+  icons/goose.svg               the helmet on a rounded dark tile, transparent corners
+  icons/goose-maskable.svg      the same helmet on a tile that runs to every edge,
+                                the whole mark inside the inner 80% safe circle
 
-Nothing is drawn in the top-right corner: that is where the launcher puts its
-badge. The tool checks that on every file it writes, and refuses (exit 1) if
-gold ever reaches there.
+  icons/icon-192.png            purpose "any", from goose.svg
+  icons/icon-512.png            purpose "any", from goose.svg
+  icons/icon-maskable-512.png   purpose "maskable", from goose-maskable.svg, so
+                                Android's mask never clips the helmet
 
-What it never does: no PIL, no Chrome, no network, and it writes nowhere but
-the icons folder (or the --out folder you name). Almanac's tools/build_icons.py
-renders an SVG through headless Chrome and PIL; Goose's SPEC asks for a stdlib
-cutter, so the ring is drawn here from its own geometry, anti-aliased by
-signed distance.
+Nothing gold is drawn in the top-right corner: that is where the launcher puts
+its badge. --check reads every shipped icon back and refuses (exit 1) if gold
+ever reaches there, if a maskable icon's gold leaves the safe circle, or if a
+tile's corners are wrong.
+
+How: --render draws each SVG at its exact pixel size with headless Chrome (a
+throwaway profile, so no window shows and his own browser is never touched;
+the same way Almanac's tools/build_icons.py renders), then PIL writes it back
+as 8-bit RGBA. --check is the standard library alone: a real PNG reader below.
 
 Usage:
-  python3 tools/make_icons.py              cut into shell/icons/
-  python3 tools/make_icons.py --out DIR    cut into DIR instead (the shell test uses a temp folder)
+  python3 tools/make_icons.py --render     render the three PNGs into shell/icons/
   python3 tools/make_icons.py --check      read the shipped icons back and check them; writes nothing
 
 After a change to the mark, bump CACHE in sw.js, or a phone keeps the old icon.
@@ -31,127 +33,36 @@ After a change to the mark, bump CACHE in sw.js, or a phone keeps the old icon.
 import math
 import os
 import struct
+import subprocess
 import sys
+import tempfile
 import zlib
 from pathlib import Path
 
 ICONS = Path(__file__).resolve().parent.parent / "icons"
+CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
-# BMH tokens (bik/design/themes/bmh.css): --color-bg, --color-primary-bright,
-# --color-primary, and a deeper gold for the ring's lower edge, where a lit
-# glass ring falls into shadow.
-TILE = (15, 15, 15)
-BRIGHT = (251, 191, 36)
-GOLD = (229, 181, 36)
-DEEP = (201, 150, 26)
-
-# (file name, size, maskable)
+# (file name, size, maskable, the SVG it is drawn from)
 JOBS = (
-    ("icon-192.png", 192, False),
-    ("icon-512.png", 512, False),
-    ("icon-maskable-512.png", 512, True),
+    ("icon-192.png", 192, False, "goose.svg"),
+    ("icon-512.png", 512, False, "goose.svg"),
+    ("icon-maskable-512.png", 512, True, "goose-maskable.svg"),
 )
 
 # The badge box: the top-right fifth of the canvas, each way. No gold there.
 BADGE_BOX = 0.20
+# Android crops a maskable icon to shapes no smaller than this circle.
+SAFE_RADIUS = 0.40
 
 
 def die(msg):
-    """Loud and non-zero: a cutter that fails quietly ships yesterday's icon."""
+    """Loud and non-zero: a renderer that fails quietly ships yesterday's icon."""
     print(f"make_icons: {msg}", file=sys.stderr, flush=True)
     sys.exit(1)
 
 
-def clamp(v, lo=0.0, hi=1.0):
-    return lo if v < lo else hi if v > hi else v
-
-
-def over(src, alpha, dst):
-    """Paint src over an opaque dst at this alpha (straight colour, sRGB)."""
-    return tuple(s * alpha + d * (1.0 - alpha) for s, d in zip(src, dst))
-
-
-def ring_colour(t):
-    """Top of the ring catches the light (t=0); the bottom falls into shadow (t=1)."""
-    if t < 0.5:
-        k = t / 0.5
-        return tuple(a + (b - a) * k for a, b in zip(BRIGHT, GOLD))
-    k = (t - 0.5) / 0.5
-    return tuple(a + (b - a) * k for a, b in zip(GOLD, DEEP))
-
-
-def tile_cover(px, py, s, radius):
-    """How much of this pixel the rounded square covers (a signed-distance box)."""
-    half = s / 2.0
-    qx = abs(px - half) - (half - radius)
-    qy = abs(py - half) - (half - radius)
-    dist = math.hypot(max(qx, 0.0), max(qy, 0.0)) + min(max(qx, qy), 0.0) - radius
-    return clamp(0.5 - dist)
-
-
-def render(size, maskable):
-    """Rows of RGBA bytes for one icon."""
-    s = float(size)
-    c = s / 2.0
-    # The maskable ring is drawn at 80% of the "any" ring, so after the
-    # launcher's mask crops to the safe circle the two read the same size.
-    scale = 0.8 if maskable else 1.0
-    r_mid, thick = 0.29 * s * scale, 0.058 * s * scale
-    r_in, r_out = r_mid - thick / 2.0, r_mid + thick / 2.0
-    halo = 0.065 * s * scale
-    corner = 0.2237 * s
-    rows = []
-    for y in range(size):
-        py = y + 0.5
-        row = bytearray(size * 4)
-        for x in range(size):
-            px = x + 0.5
-            cover = 1.0 if maskable else tile_cover(px, py, s, corner)
-            if cover <= 0.0:
-                continue                         # outside the tile: transparent
-            col = TILE
-            d = math.hypot(px - c, py - c)
-            if d < r_in:
-                # warm light pooled inside the ring, brightest at the centre
-                k = 1.0 - d / r_in
-                col = over(GOLD, 0.16 * k * k, col)
-            elif d > r_out and d - r_out < halo:
-                # the glow just outside the ring, fading smoothly to nothing
-                x01 = (d - r_out) / halo
-                col = over(GOLD, 0.24 * math.exp(-3.0 * x01) * (1.0 - x01) ** 2, col)
-            ring = clamp(min(d - r_in, r_out - d) + 0.5)
-            if ring > 0.0:
-                t = clamp((py - (c - r_out)) / (2.0 * r_out))
-                col = over(ring_colour(t), ring, col)
-            i = x * 4
-            row[i] = int(round(col[0]))
-            row[i + 1] = int(round(col[1]))
-            row[i + 2] = int(round(col[2]))
-            row[i + 3] = int(round(255 * cover))
-        rows.append(bytes(row))
-    return rows
-
-
-def chunk(tag, data):
-    return (struct.pack(">I", len(data)) + tag + data
-            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
-
-
-def encode_png(size, rows):
-    """An 8-bit RGBA PNG. Rows use the Up filter (a smooth drawing packs small)."""
-    out = bytearray()
-    prev = bytes(size * 4)
-    for row in rows:
-        out.append(2)                            # filter type 2: Up
-        out.extend((a - b) & 0xFF for a, b in zip(row, prev))
-        prev = row
-    ihdr = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr)
-            + chunk(b"IDAT", zlib.compress(bytes(out), 9)) + chunk(b"IEND", b""))
-
-
 def decode_png(data):
-    """Read back what encode_png wrote: (width, height, rows of RGBA bytes).
+    """Read an 8-bit RGBA PNG: (width, height, rows of RGBA bytes).
 
     A real reader, not a trust: it checks the signature, every CRC, the
     header, and undoes filters 0 to 4, so --check can judge any 8-bit RGBA PNG.
@@ -207,7 +118,17 @@ def decode_png(data):
     return width, height, rows
 
 
-def judge(name, size, data):
+def warmth(r, g, b, a):
+    """How gold a pixel is: gold has red far above blue; the dark tile and greys do not.
+    Above 4 is any trace of gold (even a faint edge); above 40 is the mark itself."""
+    return r - b if a else 0
+
+
+def is_gold(r, g, b, a):
+    return warmth(r, g, b, a) > 40
+
+
+def judge(name, size, maskable, data):
     """Every check one icon must pass. Returns a list of problems (empty = good)."""
     try:
         w, h, rows = decode_png(data)
@@ -221,56 +142,91 @@ def judge(name, size, data):
     for y in range(box):
         row = rows[y]
         for x in range(size - box, size):
-            r, g, b, a = row[x * 4:x * 4 + 4]
-            if a and r - b > 4:                   # gold has red far above blue; the tile does not
+            if warmth(*row[x * 4:x * 4 + 4]) > 4:
                 problems.append(f"{name}: gold in the badge corner at ({x},{y})")
                 return problems
-    mid = rows[size // 2]
-    lit = sum(1 for x in range(size) if mid[x * 4] - mid[x * 4 + 2] > 120)
-    if lit < 2:
-        problems.append(f"{name}: no ring across the middle row")
+    corner_alpha = rows[0][3]
+    if maskable and corner_alpha != 255:
+        problems.append(f"{name}: a maskable tile must run to the edges (corner alpha {corner_alpha})")
+    if not maskable and corner_alpha != 0:
+        problems.append(f"{name}: the tile's corners must be transparent (corner alpha {corner_alpha})")
+    c, limit = size / 2.0, SAFE_RADIUS * size + 1.0
+    gold = 0
+    for y, row in enumerate(rows):
+        for x in range(size):
+            if is_gold(*row[x * 4:x * 4 + 4]):
+                gold += 1
+                if maskable and math.hypot(x + 0.5 - c, y + 0.5 - c) > limit:
+                    problems.append(f"{name}: gold outside the safe circle at ({x},{y})")
+                    return problems
+    if gold < size * size * 0.05:
+        problems.append(f"{name}: hardly any gold; the helmet is missing")
     return problems
 
 
-def write_atomic(path, data):
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_bytes(data)
-    os.replace(tmp, path)
+def render_one(svg, size, out):
+    """Draw one SVG at exactly size x size with headless Chrome, written as 8-bit RGBA."""
+    try:
+        from PIL import Image
+    except ImportError:
+        die("--render needs PIL for this python; --check does not")
+    if not os.path.exists(CHROME):
+        die(f"--render needs Google Chrome at {CHROME}")
+    with tempfile.TemporaryDirectory() as tmp:
+        page = Path(tmp) / "page.html"
+        page.write_text("<!doctype html><meta charset=utf-8><style>html,body{margin:0;"
+                        "background:transparent}svg{display:block;width:%dpx;height:%dpx}</style>%s"
+                        % (size, size, svg.read_text()))
+        shot = Path(tmp) / "shot.png"
+        r = subprocess.run([CHROME, "--headless=new", "--disable-gpu", "--hide-scrollbars",
+                            f"--user-data-dir={Path(tmp) / 'profile'}",
+                            "--default-background-color=00000000",
+                            f"--window-size={size},{size}", f"--screenshot={shot}", page.as_uri()],
+                           capture_output=True, text=True, timeout=90)
+        if r.returncode != 0 or not shot.is_file():
+            die(f"Chrome could not draw {svg.name} at {size}: {r.stderr.strip()[-300:]}")
+        img = Image.open(shot).convert("RGBA")
+        if img.size != (size, size):
+            die(f"Chrome drew {svg.name} at {img.size}, not {size}x{size}")
+        tmp_out = out.with_suffix(".tmp.png")
+        img.save(tmp_out, format="PNG", optimize=True)
+        os.replace(tmp_out, out)
 
 
-def cut(out_dir):
-    out_dir.mkdir(parents=True, exist_ok=True)
-    for name, size, maskable in JOBS:
-        data = encode_png(size, render(size, maskable))
-        problems = judge(name, size, data)
+def render(icon_dir):
+    for name, size, maskable, src in JOBS:
+        svg = icon_dir / src
+        if not svg.is_file():
+            die(f"{svg} is missing; nothing rendered")
+        render_one(svg, size, icon_dir / name)
+        problems = judge(name, size, maskable, (icon_dir / name).read_bytes())
         if problems:
-            die("; ".join(problems) + " — nothing written for it")
-        write_atomic(out_dir / name, data)
-        print(f"  {name:<24} {size}x{size}  {len(data):>7} bytes", flush=True)
-    print(f"{len(JOBS)} icons cut into {out_dir}. Bump CACHE in sw.js so phones take them.")
+            die("; ".join(problems))
+        print(f"  {name:<24} {size}x{size}  from {src}", flush=True)
+    print(f"{len(JOBS)} icons rendered into {icon_dir}. Bump CACHE in sw.js so phones take them.")
 
 
 def check(icon_dir):
     problems = []
-    for name, size, _ in JOBS:
+    for name, size, maskable, src in JOBS:
+        if not (icon_dir / src).is_file():
+            problems.append(f"{src}: missing (the drawing {name} comes from)")
         path = icon_dir / name
         if not path.is_file():
             problems.append(f"{name}: missing")
             continue
-        problems.extend(judge(name, size, path.read_bytes()))
+        problems.extend(judge(name, size, maskable, path.read_bytes()))
     if problems:
         die("; ".join(problems))
     print(f"{len(JOBS)} icons in {icon_dir} check out.")
 
 
 def main(argv):
-    if not argv:
-        return cut(ICONS)
+    if argv == ["--render"]:
+        return render(ICONS)
     if argv == ["--check"]:
         return check(ICONS)
-    if len(argv) == 2 and argv[0] == "--out":
-        return cut(Path(argv[1]).expanduser().resolve())
-    die("usage: make_icons.py [--out DIR | --check]")
+    die("usage: make_icons.py --render | --check")
 
 
 if __name__ == "__main__":
