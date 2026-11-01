@@ -17,8 +17,9 @@
      (see THE SPONSOR'S NUMBER below: nothing in that section touches the
      network, and nothing outside it reads the number).
    - It never keeps what was said. The talk lives in page memory and on the
-     Mac. Only the talk's id is stored here, so a reload can ask the Mac for
-     the thread.
+     Mac. Only the talk's id and where its door stands are stored here, so a
+     reload can ask the Mac for the thread, and a door he closed is still
+     closed after a reload, however long the talk sat quiet.
    - It never leaves the mic open behind a call or another app (ear.html's
      visibility guard): the page leaving the screen ends the take unsent and
      lets go of the mic.
@@ -42,10 +43,11 @@ const LINK = takeLink();
 const K_CFG = 'goose.cfg';          // {api, key}: set only by a connect link, after a 200
 const K_SPONSOR = 'goose.sponsor';  // his sponsor's number: this phone only, never sent
 const K_VOICE = 'goose.voice';      // '0' means Goose answers in text only
-const K_CONV = 'goose.conv';        // {id, at}: the talk's number, never its words
+const K_CONV = 'goose.conv';        // {id, at, door}: the talk's number and its door, never its words
 
 const PREVIEW = location.hostname === '127.0.0.1' || location.hostname === 'localhost';
-const IDLE_MIN = 30;                // config.IDLE_MINUTES on the Mac: a talk quiet this long is over
+const IDLE_MIN = 30;                // config.IDLE_MINUTES on the Mac: a talk quiet this long is over,
+                                    // so a reload no longer asks for its thread (its number and door stay)
 const HEALTH_MS = 30000;            // the line dot, every 30 s while the page is on screen
 const WARM_GAP_MS = 60000;          // /api/warm at most once a minute; the Mac skips a warm already running
 const CALL_MS = 12000;              // a plain call answers in this, or it counts as no line
@@ -369,21 +371,29 @@ function clearThread() {
   EMPTY.hidden = false;
   T.view = null;
 }
-/* A reload (or Android killing the tab) brings the talk back from the Mac,
-   while it is still warm. The words were never stored on this phone. */
+/* A reload (or Android killing the tab, or the worker's own idle reload)
+   brings the talk back. The words were never stored on this phone: while the
+   talk is warm they come back from the Mac. Past IDLE_MIN they stay there, but
+   the talk's number and its door stay here, however long it sat quiet. The
+   next turn still names it, so the Mac carries a door he closed into the new
+   talk (the door is his to open, never the clock's), and the lock shows from
+   the first moment, line or no line. Only NEW TALK or re-connect lets go. */
 async function restoreThread() {
   let c = null;
   try { c = JSON.parse(store.get(K_CONV) || 'null'); } catch (e) {}
-  if (!c || !Number.isInteger(c.id) || c.id <= 0 || !(Date.now() - Number(c.at) < IDLE_MIN * 60000)) {
+  if (!c || typeof c !== 'object' || !Number.isInteger(c.id) || c.id <= 0) {
     store.del(K_CONV);
     return;
   }
   T.conv = c.id;
+  const at = Number(c.at);
+  T.convAt = Number.isFinite(at) && at > 0 ? at : 0;   // an unknown stamp reads as cold, and is never renewed here
+  if (c.door === 'closed') setDoor('closed', false);
+  if (!(Date.now() - T.convAt < IDLE_MIN * 60000)) return;   // cold: the Mac starts a new talk on the next turn
   const r = await call('GET', '/api/thread?conv_id=' + c.id);
   if (r.status === 401) return keyRefused();
   if (r.status !== 200 || !r.data || !Array.isArray(r.data.turns)) return;
   if (T.view || T.conv !== c.id) return;          // he has already started talking: leave the glass alone
-  setDoor(r.data.door === 'closed' ? 'closed' : 'open', false);
   let v = null;
   for (const t of r.data.turns) {
     const text = str(t && t.text).trim();
@@ -392,6 +402,11 @@ async function restoreThread() {
     if (t.speaker === 'bryan') { v = turnView(); setYou(v, text, t.via === 'voice' ? 'voice' : 'type'); }
     else if (t.speaker === 'goose') { if (!v) v = turnView(); addSentence(v, text); }
   }
+  // The Mac's word on the door wins. If it differs from what this phone last
+  // knew, the glass says so under the talk instead of the lock just changing.
+  // An answer with no door in it never takes a lock down (as in setConv).
+  const d = r.data.door;
+  setDoor(d === 'closed' ? 'closed' : d === 'open' ? 'open' : T.door, true);
   thread.scrollTop = thread.scrollHeight;
 }
 
@@ -605,6 +620,7 @@ function taken(take) {                // the recorder has handed over its last c
    X-Goose-Conv. Every event lands on the glass as it arrives. */
 const T = {
   conv: null,         // this talk's id on the Mac
+  convAt: 0,          // when a turn last touched it (Date.now()): a reload past IDLE_MIN leaves its thread on the Mac
   gen: 0,             // bumps on every new turn, cut-in or new talk: a stale stream dies at its next read
   ctrl: null,         // the open turn's AbortController
   open: false,        // an answer is still streaming
@@ -766,23 +782,31 @@ function onEvent(ev) {
 function setConv(id, v, door) {
   const n = Number(id);
   if (!Number.isInteger(n) || n <= 0) return;
+  // The door is the Mac's word on EVERY conv event, never reset here, and a
+  // change is said on the glass: the lock can be wrong after a reload with no
+  // line, or after a closed door the Mac never got to keep.
+  const state = door === 'closed' ? 'closed' : door === 'open' ? 'open' : T.door;
   if (T.conv && T.conv !== n) {
     // the old talk went quiet past IDLE_MIN, so the Mac opened a new one, with
-    // the stance back on deciding. The door is the Mac's word, never reset here:
-    // a talk that went quiet behind a closed door starts the next one closed
-    // too, and the glass says where the door stands either way.
+    // the stance back on deciding. A talk that went quiet behind a closed door
+    // starts the next one closed too, and the glass says where the door stands
+    // either way.
     divider('a new talk', v && v.t);
     T.stance = 'decide';
-    const state = door === 'closed' ? 'closed' : door === 'open' ? 'open' : T.door;
     if (state === 'closed' && T.door === 'closed') {
       divider('door still closed · this stays on the Mac', v && v.t);
-    } else setDoor(state, true, v && v.t);
+    }
   }
   T.conv = n;
+  T.convAt = Date.now();
+  setDoor(state, true, v && v.t);
   saveConv();
 }
+/* The talk's number and where its door stands, on this phone: never a word of
+   it. The stamp moves only when a turn touches the talk (as last_at does on
+   the Mac), so a door change or a reload never makes a cold talk look warm. */
 function saveConv() {
-  if (T.conv) store.set(K_CONV, JSON.stringify({ id: T.conv, at: Date.now() }));
+  if (T.conv) store.set(K_CONV, JSON.stringify({ id: T.conv, at: T.convAt, door: T.door }));
 }
 function setDoor(state, announce, before) {
   const was = T.door;
@@ -791,11 +815,12 @@ function setDoor(state, announce, before) {
   if (announce && was !== state) {
     divider(state === 'closed' ? 'door closed · this stays on the Mac' : 'door open', before || null);
   }
+  saveConv();                        // kept the moment it moves: a line that drops before done must not lose it
 }
 function finishTurn() {
   T.last = null;                     // it landed: nothing to resend
   setLine('up', T.startAt);
-  saveConv();
+  if (T.conv) { T.convAt = Date.now(); saveConv(); }
   LAST.heard = T.via === 'voice' ? T.heardMs : null;
   LAST.first = T.firstSound ? T.firstSound - T.overAt : null;
   LAST.total = T.ms && typeof T.ms.total === 'number' ? T.ms.total : null;
@@ -978,6 +1003,7 @@ function newTalk() {
   quiet();
   const wasClosed = T.door === 'closed';
   T.conv = null;
+  T.convAt = 0;
   T.last = null;
   T.stance = 'decide';
   store.del(K_CONV);
@@ -1156,11 +1182,15 @@ function askVersion() {
 function forget() {
   if (!window.confirm("Forget this connection? You'll need a new connect link from the Mac.")) return;
   quiet();
+  const wasClosed = T.door === 'closed';
   store.del(K_CFG);
   store.del(K_CONV);
   C.api = ''; C.key = ''; C.line = 'unknown'; C.lineAt = -Infinity; C.health = null; C.refused = false;
-  T.conv = null; T.last = null;
+  T.conv = null; T.convAt = 0; T.last = null;
   clearThread();
+  // the talk's number is gone, so the next talk starts open on the Mac: the
+  // lock must not stay up claiming a door that no longer holds (as NEW TALK)
+  setDoor('open', wasClosed);
   closeSheets(true);
   showConnect('');
 }

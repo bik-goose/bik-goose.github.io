@@ -6,7 +6,9 @@
    link is scrubbed before any request. A key is stored only after a 200. A
    turn streams onto the glass and into the voice queue in order, two
    sentences fetched ahead. A tap cuts Goose off. No line holds the take for
-   a resend. A breath of quiet ends a take. The sponsor's number never leaves
+   a resend. A breath of quiet ends a take. A closed door outlives a reload,
+   however long the talk sat quiet, and the glass shows the door the Mac
+   names on every conv event. The sponsor's number never leaves
    localStorage. And nothing ever writes markup: the fake elements throw on
    innerHTML, outerHTML, insertAdjacentHTML and document.write.
 
@@ -928,8 +930,9 @@ async function main() {
     assert.match(p.$('knowList').textContent, /Read fresh at 10:05 am\./);
   });
 
-  await scenario('a reload brings a warm talk back from the Mac; a cold one is let go', async () => {
-    const warmConv = JSON.stringify({ id: 21, at: Date.now() - 5 * 60000 });
+  await scenario('a reload brings a warm talk back from the Mac; a cold one keeps its number but is not fetched; junk is let go', async () => {
+    const warmAt = Date.now() - 5 * 60000;
+    const warmConv = JSON.stringify({ id: 21, at: warmAt });
     const p = makePage({ storage: { 'goose.cfg': CFG, 'goose.conv': warmConv } });
     p.online();
     p.on('GET', '/api/thread', () => json(200, { conv_id: 21, door: 'closed', turns: [
@@ -943,13 +946,256 @@ async function main() {
     assert.equal(p.find('heard').length, 1, 'his voice line comes back marked heard:, his typed one plain');
     assert.equal(p.$('lock').hidden, false);
     assert.equal(p.callsTo('/api/thread')[0].url, API + '/api/thread?conv_id=21');
+    const after = JSON.parse(p.storage.get('goose.conv'));
+    assert.equal(after.door, 'closed', "the Mac's door is kept with the talk number");
+    assert.equal(after.at, warmAt, 'a reload never renews the stamp: only a turn does');
+    // Review 11-01 (public 1): a cold talk used to be dropped here, so the next
+    // turn named no talk and a door he had closed came back open.
     const coldConv = JSON.stringify({ id: 22, at: Date.now() - 45 * 60000 });
     const q = makePage({ storage: { 'goose.cfg': CFG, 'goose.conv': coldConv } });
     q.online();
     q.boot();
     await tick(30);
-    assert.equal(q.callsTo('/api/thread').length, 0);
-    assert.equal(q.storage.has('goose.conv'), false);
+    assert.equal(q.callsTo('/api/thread').length, 0, 'a cold talk is not fetched back');
+    assert.equal(q.storage.get('goose.conv'), coldConv, 'its number is kept as it was');
+    for (const junk of ['not json', 'null', '[]', '{"id":0,"at":1}', '{"id":"7","at":1}', '{"id":2.5}']) {
+      const j = makePage({ storage: { 'goose.cfg': CFG, 'goose.conv': junk } });
+      j.online();
+      j.boot();
+      await tick(20);
+      assert.equal(j.callsTo('/api/thread').length, 0, 'no thread for ' + junk);
+      assert.equal(j.storage.has('goose.conv'), false, 'junk is let go: ' + junk);
+    }
+  });
+
+  await scenario('a reload shows a closed door at once, before the Mac answers; the Mac\'s word wins and a change is said', async () => {
+    // Review 11-01 (public 3): with no line at boot, a talk behind the door
+    // came back with no lock, because only the thread fetch could set it.
+    const at = Date.now() - 5 * 60000;
+    const p = makePage({ storage: { 'goose.cfg': CFG, 'goose.conv': JSON.stringify({ id: 23, at, door: 'closed' }) } });
+    p.online();
+    let release;
+    const answered = new Promise(r => { release = r; });
+    p.on('GET', '/api/thread', async () => {
+      await answered;
+      return json(200, { conv_id: 23, door: 'open', turns: [
+        { speaker: 'bryan', text: 'open the door', at: '2026-11-01T10:00:00-05:00', via: 'type' },
+        { speaker: 'goose', text: "Door's open.", at: '2026-11-01T10:00:02-05:00', via: 'type' },
+      ] });
+    });
+    p.boot();
+    await until(() => p.callsTo('/api/thread').length === 1, 'the thread asked for');
+    assert.equal(p.$('lock').hidden, false, 'the stored door shows before the Mac answers, line or no line');
+    release();
+    await until(() => p.turns().length === 1, 'the thread');
+    assert.equal(p.$('lock').hidden, true, "the Mac's door wins");
+    const kids = p.$('thread').children;
+    assert.equal(kids[kids.length - 1].textContent, 'door open', 'the change is said under the talk');
+    assert.equal(JSON.parse(p.storage.get('goose.conv')).door, 'open');
+    // fail closed: a thread answer with no door in it never takes the lock down
+    const q = makePage({ storage: { 'goose.cfg': CFG, 'goose.conv': JSON.stringify({ id: 24, at, door: 'closed' }) } });
+    q.online();
+    q.on('GET', '/api/thread', () => json(200, { conv_id: 24, turns: [
+      { speaker: 'goose', text: 'Right here.', at: '2026-11-01T10:00:02-05:00', via: 'type' },
+    ] }));
+    q.boot();
+    await until(() => q.turns().length === 1, 'the thread');
+    assert.equal(q.$('lock').hidden, false, 'no door in the answer: the lock stays');
+    assert.equal(q.find('divider').length, 0);
+  });
+
+  await scenario('a reload 31 minutes after the rail closed the door keeps the talk and its door: the lock at once, no thread fetch, the next turn names the talk', async () => {
+    // Review 11-01 (safety 11): a reload past IDLE_MIN dropped the talk's
+    // number, so the Mac opened the next talk with the door open, and the glass
+    // said nothing. The page now keeps the number and the door, and the Mac
+    // carries a closed door into the new talk when the turn names the old one.
+    const p = makePage({ storage: { 'goose.cfg': CFG, 'goose.voice': '0' } });
+    p.online();
+    p.on('POST', '/api/turn', req => ndjson([
+      { type: 'rail' }, { type: 'sentence', i: 0, text: "I'm right here." },
+      { type: 'conv', conv_id: 41, door: 'open' }, { type: 'route', route: 'crisis' },
+      { type: 'door', state: 'closed' }, { type: 'done', episode_id: null, ms: {} },
+    ], req.signal).res);
+    p.boot();
+    await until(() => !p.$('talk').hidden, 'the talk screen');
+    p.$('text').value = 'a hard night';
+    p.$('send').click();
+    await until(() => !p.$('lock').hidden && p.key() === 'idle', 'the rail turn');
+    const kept = JSON.parse(p.storage.get('goose.conv'));
+    assert.equal(kept.id, 41);
+    assert.equal(kept.door, 'closed', 'the door is kept with the talk number');
+    // the reload, 31 minutes on: the same phone storage, the talk now cold on the Mac
+    kept.at = Date.now() - 31 * 60000;
+    const stored = JSON.stringify(kept);
+    const q = makePage({ storage: { 'goose.cfg': CFG, 'goose.voice': '0', 'goose.conv': stored } });
+    q.online();
+    q.on('GET', '/api/thread', () => json(200, { conv_id: 41, door: 'closed', turns: [] }));
+    const turns = [];
+    q.on('POST', '/api/turn', req => {
+      turns.push(req);
+      // what the Mac answers when the turn names the idle talk it closed: a new talk, behind the door
+      return ndjson([
+        { type: 'heard', text: 'I keep thinking I let my kids down', ms: 0 },
+        { type: 'conv', conv_id: 42, door: 'closed' }, { type: 'route', route: 'ask' },
+        { type: 'door', state: 'closed' },
+        { type: 'sentence', i: 0, text: 'Tell me more.' }, { type: 'done', episode_id: null, ms: {} },
+      ], req.signal).res;
+    });
+    q.boot();
+    await until(() => !q.$('talk').hidden, 'the talk screen');
+    await tick(30);
+    assert.equal(q.callsTo('/api/thread').length, 0, 'a cold talk is not fetched back');
+    assert.equal(q.storage.get('goose.conv'), stored, 'its number, stamp and door are kept as they were');
+    assert.equal(q.$('lock').hidden, false, 'the lock shows from the first moment');
+    q.$('text').value = 'I keep thinking I let my kids down';
+    q.$('send').click();
+    await until(() => turns.length === 1 && q.key() === 'idle', 'the turn');
+    assert.deepEqual(JSON.parse(turns[0].body), { text: 'I keep thinking I let my kids down', conv_id: 41 });
+    assert.equal(q.$('lock').hidden, false, 'the door stays closed into the new talk');
+    assert.deepEqual(q.find('divider').map(d => d.textContent),
+                     ['a new talk', 'door still closed · this stays on the Mac']);
+    const now = JSON.parse(q.storage.get('goose.conv'));
+    assert.equal(now.id, 42);
+    assert.equal(now.door, 'closed');
+  });
+
+  await scenario('a reload 45 minutes on, from the {id, at} a phone holds today: the next take still names the talk, and the door the Mac carries is said', async () => {
+    // Review 11-01 (public 1): the record the page wrote before this fix has
+    // no door in it. The take must still name the talk, so the Mac can carry it.
+    const cold = JSON.stringify({ id: 30, at: Date.now() - 45 * 60000 });
+    const p = makePage({ storage: { 'goose.cfg': CFG, 'goose.conv': cold, 'goose.voice': '0' } });
+    p.online();
+    p.on('GET', '/api/thread', () => json(200, { conv_id: 30, door: 'closed', turns: [] }));
+    let turn = null;
+    p.on('POST', '/api/turn', req => {
+      turn = req;
+      return ndjson([
+        { type: 'heard', text: 'still on what we were talking about', ms: 300 },
+        { type: 'conv', conv_id: 31, door: 'closed' }, { type: 'route', route: 'ask' },
+        { type: 'door', state: 'closed' },
+        { type: 'sentence', i: 0, text: 'Go on.' }, { type: 'done', episode_id: null, ms: {} },
+      ], req.signal).res;
+    });
+    p.boot();
+    await until(() => !p.$('talk').hidden, 'the talk screen');
+    await tick(30);
+    assert.equal(p.callsTo('/api/thread').length, 0, 'a cold talk is not fetched back');
+    assert.equal(p.storage.get('goose.conv'), cold, 'its number is kept as it was');
+    assert.equal(p.$('lock').hidden, true, 'no door was stored, so none is claimed');
+    p.$('key').click();
+    await until(() => p.recorders.length === 1, 'the recorder');
+    p.skew += 1000;
+    p.$('key').click();                                  // tap when done
+    await until(() => turn, 'the voice turn');
+    assert.equal(turn.headers['X-Goose-Conv'], '30', 'the take names the cold talk');
+    await until(() => p.key() === 'idle' && p.find('heard').length === 1, 'the answer');
+    assert.equal(p.$('lock').hidden, false, 'the Mac carried the closed door: the lock shows');
+    assert.deepEqual(p.find('divider').map(d => d.textContent),
+                     ['a new talk', 'door closed · this stays on the Mac']);
+    assert.equal(JSON.parse(p.storage.get('goose.conv')).door, 'closed');
+  });
+
+  await scenario('the door rides on every conv event: a talk restored with no line shows the lock once the Mac says closed', async () => {
+    // Review 11-01 (public 3): setConv read the conv event's door only when the
+    // talk id changed. A talk already behind the door gets no door event.
+    const warm = JSON.stringify({ id: 21, at: Date.now() - 5 * 60000 });
+    const p = makePage({ storage: { 'goose.cfg': CFG, 'goose.conv': warm, 'goose.voice': '0' } });
+    let line = false;
+    p.on('GET', '/api/health', () => (line ? json(200, HEALTH) : new TypeError('Failed to fetch')));
+    p.on('POST', '/api/warm', () => (line ? json(200, { ok: true }) : new TypeError('Failed to fetch')));
+    p.on('GET', '/api/thread', () => (line ? json(200, { conv_id: 21, door: 'closed', turns: [] })
+                                           : new TypeError('Failed to fetch')));
+    const turns = [];
+    p.on('POST', '/api/turn', req => {
+      turns.push(req);
+      return ndjson([
+        { type: 'heard', text: 'ok, where were we', ms: 0 },
+        { type: 'conv', conv_id: 21, door: 'closed' }, { type: 'route', route: 'ask' },
+        { type: 'sentence', i: 0, text: 'Right here.' }, { type: 'done', episode_id: null, ms: {} },
+      ], req.signal).res;
+    });
+    p.boot();
+    await until(() => !p.$('talk').hidden, 'the talk screen');
+    await until(() => p.callsTo('/api/thread').length === 1, 'the thread asked for');
+    await tick(30);
+    assert.equal(p.$('lock').hidden, true, 'no line and no door stored: nothing to claim yet');
+    line = true;                                         // the line comes back
+    p.$('text').value = 'ok, where were we';
+    p.$('send').click();
+    await until(() => turns.length === 1 && p.key() === 'idle', 'the turn');
+    assert.deepEqual(JSON.parse(turns[0].body), { text: 'ok, where were we', conv_id: 21 });
+    assert.equal(p.$('lock').hidden, false, 'the Mac said closed: the lock shows');
+    assert.deepEqual(p.find('divider').map(d => d.textContent), ['door closed · this stays on the Mac']);
+    assert.equal(JSON.parse(p.storage.get('goose.conv')).door, 'closed');
+  });
+
+  await scenario('a conv event that says the door is open takes the lock down in the same talk, and says so', async () => {
+    // Review 11-01 (public 3; the page half of safety 14): the glass kept a lock
+    // the Mac was not holding, so his next words looked walled and were not.
+    const p = makePage({ storage: { 'goose.cfg': CFG, 'goose.voice': '0' } });
+    p.online();
+    const streams = [
+      [{ type: 'rail' }, { type: 'sentence', i: 0, text: "I'm right here." },
+       { type: 'conv', conv_id: 1, door: 'open' }, { type: 'route', route: 'crisis' },
+       { type: 'door', state: 'closed' }, { type: 'done', episode_id: null, ms: {} }],
+      [{ type: 'heard', text: "I'm still not okay.", ms: 0 }, { type: 'conv', conv_id: 1, door: 'open' },
+       { type: 'route', route: 'ask' }, { type: 'sentence', i: 0, text: 'Take the labor job.' },
+       { type: 'done', episode_id: 4, ms: {} }],
+    ];
+    let n = 0;
+    p.on('POST', '/api/turn', req => ndjson(streams[n++], req.signal).res);
+    p.boot();
+    await until(() => !p.$('talk').hidden, 'the talk screen');
+    p.$('text').value = 'a hard night';
+    p.$('send').click();
+    await until(() => n === 1 && p.key() === 'idle', 'turn 1');
+    assert.equal(p.$('lock').hidden, false);
+    p.skew += 1000;
+    p.$('text').value = "I'm still not okay.";
+    p.$('send').click();
+    await until(() => n === 2 && p.key() === 'idle', 'turn 2');
+    assert.equal(p.$('lock').hidden, true, 'the Mac holds the door open: the glass must not claim it closed');
+    assert.deepEqual(p.find('divider').map(d => d.textContent),
+                     ['door closed · this stays on the Mac', 'door open']);
+    assert.equal(JSON.parse(p.storage.get('goose.conv')).door, 'open');
+  });
+
+  await scenario('a line that drops after the door closed still keeps the closed door for the next reload', async () => {
+    const p = makePage({ storage: { 'goose.cfg': CFG, 'goose.voice': '0' } });
+    p.online();
+    p.on('POST', '/api/turn', req => {
+      const s = ndjson([{ type: 'conv', conv_id: 8, door: 'open' }, { type: 'route', route: 'door_close' },
+                        { type: 'door', state: 'closed' }], req.signal, true);
+      setTimeout(() => { try { s.end(); } catch (e) {} }, 30);   // the line drops: no done
+      return s.res;
+    });
+    p.boot();
+    await until(() => !p.$('talk').hidden, 'the talk screen');
+    p.$('text').value = 'close the door';
+    p.$('send').click();
+    await until(() => !p.$('resend').hidden, 'the notch');
+    const kept = JSON.parse(p.storage.get('goose.conv'));
+    assert.equal(kept.id, 8);
+    assert.equal(kept.door, 'closed', 'the door was kept the moment it closed, not only at done');
+  });
+
+  await scenario('re-connect lets go of the talk and takes the lock down: the next talk will not be behind it', async () => {
+    const p = makePage({ storage: { 'goose.cfg': CFG, 'goose.voice': '0' } });
+    p.online();
+    p.on('POST', '/api/turn', req => ndjson([
+      { type: 'conv', conv_id: 12, door: 'open' }, { type: 'route', route: 'door_close' },
+      { type: 'door', state: 'closed' }, { type: 'done', episode_id: null, ms: {} },
+    ], req.signal).res);
+    p.boot();
+    await until(() => !p.$('talk').hidden, 'the talk screen');
+    p.$('text').value = 'close the door';
+    p.$('send').click();
+    await until(() => !p.$('lock').hidden && p.key() === 'idle', 'the lock');
+    p.$('gear').click();
+    p.$('reconnect').click();
+    assert.equal(p.$('connect').hidden, false);
+    assert.equal(p.storage.has('goose.conv'), false);
+    assert.equal(p.$('lock').hidden, true, 'no lock left on the bar for a talk this phone let go');
   });
 
   let failed = 0;
